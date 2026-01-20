@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron"
-import type { Thread, ModelConfig, Provider, StreamEvent, HITLDecision } from "../main/types"
+import type { Thread, ModelConfig, UserModel, StreamEvent, HITLDecision } from "../main/types"
 
 // Simple electron API - replaces @electron-toolkit/preload
 const electronAPI = {
@@ -131,23 +131,41 @@ const api = {
     list: (): Promise<ModelConfig[]> => {
       return ipcRenderer.invoke("models:list")
     },
-    listProviders: (): Promise<Provider[]> => {
-      return ipcRenderer.invoke("models:listProviders")
-    },
-    getDefault: (): Promise<string> => {
+    getDefault: (): Promise<string | null> => {
       return ipcRenderer.invoke("models:getDefault")
     },
     setDefault: (modelId: string): Promise<void> => {
       return ipcRenderer.invoke("models:setDefault", modelId)
     },
-    setApiKey: (provider: string, apiKey: string): Promise<void> => {
-      return ipcRenderer.invoke("models:setApiKey", { provider, apiKey })
+    // Simplified API key management (single OpenAI-compatible endpoint)
+    setApiKey: (apiKey: string): Promise<void> => {
+      return ipcRenderer.invoke("models:setApiKey", { apiKey })
     },
-    getApiKey: (provider: string): Promise<string | null> => {
-      return ipcRenderer.invoke("models:getApiKey", provider)
+    getApiKey: (): Promise<string | null> => {
+      return ipcRenderer.invoke("models:getApiKey")
     },
-    deleteApiKey: (provider: string): Promise<void> => {
-      return ipcRenderer.invoke("models:deleteApiKey", provider)
+    deleteApiKey: (): Promise<void> => {
+      return ipcRenderer.invoke("models:deleteApiKey")
+    },
+    hasApiKey: (): Promise<boolean> => {
+      return ipcRenderer.invoke("models:hasApiKey")
+    },
+    // Base URL management
+    getBaseUrl: (): Promise<string> => {
+      return ipcRenderer.invoke("models:getBaseUrl")
+    },
+    setBaseUrl: (url: string): Promise<void> => {
+      return ipcRenderer.invoke("models:setBaseUrl", url)
+    },
+    // User model management
+    addModel: (model: UserModel): Promise<void> => {
+      return ipcRenderer.invoke("models:addModel", model)
+    },
+    deleteModel: (modelId: string): Promise<void> => {
+      return ipcRenderer.invoke("models:deleteModel", modelId)
+    },
+    getUserModels: (): Promise<UserModel[]> => {
+      return ipcRenderer.invoke("models:getUserModels")
     }
   },
   workspace: {

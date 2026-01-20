@@ -1,14 +1,15 @@
 import { create } from "zustand"
-import type { Thread, ModelConfig, Provider } from "@/types"
+import type { Thread, ModelConfig, UserModel } from "@/types"
 
 interface AppState {
   // Threads
   threads: Thread[]
   currentThreadId: string | null
 
-  // Models and Providers (global, not per-thread)
+  // Models (global, not per-thread)
   models: ModelConfig[]
-  providers: Provider[]
+  hasApiKey: boolean
+  baseUrl: string
 
   // Right panel state (UI state, not thread data)
   rightPanelTab: "todos" | "files" | "subagents"
@@ -27,11 +28,14 @@ interface AppState {
   updateThread: (threadId: string, updates: Partial<Thread>) => Promise<void>
   generateTitleForFirstMessage: (threadId: string, content: string) => Promise<void>
 
-  // Model actions
+  // Model actions (simplified - single OpenAI-compatible endpoint)
   loadModels: () => Promise<void>
-  loadProviders: () => Promise<void>
-  setApiKey: (providerId: string, apiKey: string) => Promise<void>
-  deleteApiKey: (providerId: string) => Promise<void>
+  setApiKey: (apiKey: string) => Promise<void>
+  deleteApiKey: () => Promise<void>
+  setBaseUrl: (url: string) => Promise<void>
+  addModel: (model: UserModel) => Promise<void>
+  deleteModel: (modelId: string) => Promise<void>
+  setDefaultModel: (modelId: string) => Promise<void>
 
   // Panel actions
   setRightPanelTab: (tab: "todos" | "files" | "subagents") => void
@@ -49,7 +53,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   threads: [],
   currentThreadId: null,
   models: [],
-  providers: [],
+  hasApiKey: false,
+  baseUrl: "https://api.openai.com/v1",
   rightPanelTab: "todos",
   settingsOpen: false,
   sidebarCollapsed: false,
@@ -118,36 +123,51 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  // Model actions
+  // Model actions (simplified)
   loadModels: async () => {
     const models = await window.api.models.list()
-    set({ models })
+    const hasKey = await window.api.models.hasApiKey()
+    const baseUrl = await window.api.models.getBaseUrl()
+    set({ models, hasApiKey: hasKey, baseUrl })
   },
 
-  loadProviders: async () => {
-    const providers = await window.api.models.listProviders()
-    set({ providers })
-  },
-
-  setApiKey: async (providerId: string, apiKey: string) => {
-    console.log("[Store] setApiKey called:", { providerId, keyLength: apiKey.length })
+  setApiKey: async (apiKey: string) => {
+    console.log("[Store] setApiKey called, keyLength:", apiKey.length)
     try {
-      await window.api.models.setApiKey(providerId, apiKey)
+      await window.api.models.setApiKey(apiKey)
       console.log("[Store] API key saved via IPC")
-      // Reload providers and models to update availability
-      await get().loadProviders()
+      // Reload models to update availability
       await get().loadModels()
-      console.log("[Store] Providers and models reloaded")
+      console.log("[Store] Models reloaded")
     } catch (e) {
       console.error("[Store] Failed to set API key:", e)
       throw e
     }
   },
 
-  deleteApiKey: async (providerId: string) => {
-    await window.api.models.deleteApiKey(providerId)
-    // Reload providers and models to update availability
-    await get().loadProviders()
+  deleteApiKey: async () => {
+    await window.api.models.deleteApiKey()
+    // Reload models to update availability
+    await get().loadModels()
+  },
+
+  setBaseUrl: async (url: string) => {
+    await window.api.models.setBaseUrl(url)
+    set({ baseUrl: url })
+  },
+
+  addModel: async (model: UserModel) => {
+    await window.api.models.addModel(model)
+    await get().loadModels()
+  },
+
+  deleteModel: async (modelId: string) => {
+    await window.api.models.deleteModel(modelId)
+    await get().loadModels()
+  },
+
+  setDefaultModel: async (modelId: string) => {
+    await window.api.models.setDefault(modelId)
     await get().loadModels()
   },
 

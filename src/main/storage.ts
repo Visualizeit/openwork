@@ -1,18 +1,16 @@
 import { homedir } from "os"
 import { join } from "path"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs"
-import type { ProviderId } from "./types"
+import type { UserModel } from "./types"
 
 const OPENWORK_DIR = join(homedir(), ".openwork")
 const ENV_FILE = join(OPENWORK_DIR, ".env")
+const USER_MODELS_FILE = join(OPENWORK_DIR, "user-models.json")
 
-// Environment variable names for each provider
-const ENV_VAR_NAMES: Record<ProviderId, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  google: "GOOGLE_API_KEY",
-  ollama: "" // Ollama doesn't require an API key
-}
+// Environment variable names
+const OPENAI_API_KEY = "OPENAI_API_KEY"
+const OPENAI_BASE_URL = "OPENAI_BASE_URL"
+const DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 export function getOpenworkDir(): string {
   if (!existsSync(OPENWORK_DIR)) {
@@ -82,43 +80,94 @@ function writeEnvFile(env: Record<string, string>): void {
   writeFileSync(getEnvFilePath(), lines.join("\n") + "\n")
 }
 
-// API key management
-export function getApiKey(provider: string): string | undefined {
-  const envVarName = ENV_VAR_NAMES[provider]
-  if (!envVarName) return undefined
+// =============================================================================
+// API Key Management (simplified - single OpenAI-compatible endpoint)
+// =============================================================================
 
+export function getApiKey(): string | undefined {
   // Check .env file first
   const env = parseEnvFile()
-  if (env[envVarName]) return env[envVarName]
+  if (env[OPENAI_API_KEY]) return env[OPENAI_API_KEY]
 
   // Fall back to process environment
-  return process.env[envVarName]
+  return process.env[OPENAI_API_KEY]
 }
 
-export function setApiKey(provider: string, apiKey: string): void {
-  const envVarName = ENV_VAR_NAMES[provider]
-  if (!envVarName) return
-
+export function setApiKey(apiKey: string): void {
   const env = parseEnvFile()
-  env[envVarName] = apiKey
+  env[OPENAI_API_KEY] = apiKey
   writeEnvFile(env)
 
   // Also set in process.env for current session
-  process.env[envVarName] = apiKey
+  process.env[OPENAI_API_KEY] = apiKey
 }
 
-export function deleteApiKey(provider: string): void {
-  const envVarName = ENV_VAR_NAMES[provider]
-  if (!envVarName) return
-
+export function deleteApiKey(): void {
   const env = parseEnvFile()
-  delete env[envVarName]
+  delete env[OPENAI_API_KEY]
   writeEnvFile(env)
 
   // Also clear from process.env
-  delete process.env[envVarName]
+  delete process.env[OPENAI_API_KEY]
 }
 
-export function hasApiKey(provider: string): boolean {
-  return !!getApiKey(provider)
+export function hasApiKey(): boolean {
+  return !!getApiKey()
+}
+
+// =============================================================================
+// Base URL Management
+// =============================================================================
+
+export function getBaseUrl(): string {
+  // Check .env file first
+  const env = parseEnvFile()
+  if (env[OPENAI_BASE_URL]) return env[OPENAI_BASE_URL]
+
+  // Fall back to process environment, then default
+  return process.env[OPENAI_BASE_URL] || DEFAULT_BASE_URL
+}
+
+export function setBaseUrl(url: string): void {
+  const env = parseEnvFile()
+  env[OPENAI_BASE_URL] = url
+  writeEnvFile(env)
+
+  // Also set in process.env for current session
+  process.env[OPENAI_BASE_URL] = url
+}
+
+// =============================================================================
+// User Models Management
+// =============================================================================
+
+export function getUserModels(): UserModel[] {
+  if (!existsSync(USER_MODELS_FILE)) return []
+  try {
+    const content = readFileSync(USER_MODELS_FILE, "utf-8")
+    return JSON.parse(content) as UserModel[]
+  } catch {
+    return []
+  }
+}
+
+export function setUserModels(models: UserModel[]): void {
+  getOpenworkDir() // ensure dir exists
+  writeFileSync(USER_MODELS_FILE, JSON.stringify(models, null, 2))
+}
+
+export function addUserModel(model: UserModel): void {
+  const models = getUserModels()
+  const existingIndex = models.findIndex((m) => m.id === model.id)
+  if (existingIndex >= 0) {
+    models[existingIndex] = model
+  } else {
+    models.push(model)
+  }
+  setUserModels(models)
+}
+
+export function deleteUserModel(modelId: string): void {
+  const models = getUserModels().filter((m) => m.id !== modelId)
+  setUserModels(models)
 }

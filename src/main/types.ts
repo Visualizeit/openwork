@@ -50,7 +50,6 @@ export interface WorkspaceFileParams {
 
 // Model IPC
 export interface SetApiKeyParams {
-  provider: string
   apiKey: string
 }
 
@@ -79,20 +78,19 @@ export interface Run {
   metadata?: Record<string, unknown>
 }
 
-// Provider configuration
-export type ProviderId = "anthropic" | "openai" | "google" | "ollama"
-
-export interface Provider {
-  id: ProviderId
-  name: string
-  hasApiKey: boolean
+// User-defined model configuration
+export interface UserModel {
+  id: string // UUID
+  name: string // Display name
+  modelId: string // Actual model ID sent to API
+  description?: string
+  isDefault?: boolean
 }
 
-// Model configuration
+// Model configuration for UI display
 export interface ModelConfig {
   id: string
   name: string
-  provider: ProviderId
   model: string
   description?: string
   available: boolean

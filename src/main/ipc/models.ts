@@ -2,16 +2,21 @@ import { IpcMain, dialog, app } from "electron"
 import Store from "electron-store"
 import * as fs from "fs/promises"
 import * as path from "path"
-import type {
-  ModelConfig,
-  Provider,
-  SetApiKeyParams,
-  WorkspaceSetParams,
-  WorkspaceLoadParams,
-  WorkspaceFileParams
-} from "../types"
+import type { ModelConfig, SetApiKeyParams, UserModel } from "../types"
 import { startWatching, stopWatching } from "../services/workspace-watcher"
-import { getOpenworkDir, getApiKey, setApiKey, deleteApiKey, hasApiKey } from "../storage"
+import {
+  getOpenworkDir,
+  getApiKey,
+  setApiKey,
+  deleteApiKey,
+  hasApiKey,
+  getBaseUrl,
+  setBaseUrl,
+  getUserModels,
+  addUserModel,
+  deleteUserModel,
+  setUserModels
+} from "../storage"
 
 // Store for non-sensitive settings only (no encryption needed)
 const store = new Store({
@@ -19,232 +24,82 @@ const store = new Store({
   cwd: getOpenworkDir()
 })
 
-// Provider configurations
-const PROVIDERS: Omit<Provider, "hasApiKey">[] = [
-  { id: "anthropic", name: "Anthropic" },
-  { id: "openai", name: "OpenAI" },
-  { id: "google", name: "Google" }
-]
-
-// Available models configuration (updated Jan 2026)
-const AVAILABLE_MODELS: ModelConfig[] = [
-  // Anthropic Claude 4.5 series (latest as of Jan 2026)
-  {
-    id: "claude-opus-4-5-20251101",
-    name: "Claude Opus 4.5",
-    provider: "anthropic",
-    model: "claude-opus-4-5-20251101",
-    description: "Premium model with maximum intelligence",
-    available: true
-  },
-  {
-    id: "claude-sonnet-4-5-20250929",
-    name: "Claude Sonnet 4.5",
-    provider: "anthropic",
-    model: "claude-sonnet-4-5-20250929",
-    description: "Best balance of intelligence, speed, and cost for agents",
-    available: true
-  },
-  {
-    id: "claude-haiku-4-5-20251001",
-    name: "Claude Haiku 4.5",
-    provider: "anthropic",
-    model: "claude-haiku-4-5-20251001",
-    description: "Fastest model with near-frontier intelligence",
-    available: true
-  },
-  // Anthropic Claude legacy models
-  {
-    id: "claude-opus-4-1-20250805",
-    name: "Claude Opus 4.1",
-    provider: "anthropic",
-    model: "claude-opus-4-1-20250805",
-    description: "Previous generation premium model with extended thinking",
-    available: true
-  },
-  {
-    id: "claude-sonnet-4-20250514",
-    name: "Claude Sonnet 4",
-    provider: "anthropic",
-    model: "claude-sonnet-4-20250514",
-    description: "Fast and capable previous generation model",
-    available: true
-  },
-  // OpenAI GPT-5 series (latest as of Jan 2026)
-  {
-    id: "gpt-5.2",
-    name: "GPT-5.2",
-    provider: "openai",
-    model: "gpt-5.2",
-    description: "Latest flagship with enhanced coding and agentic capabilities",
-    available: true
-  },
-  {
-    id: "gpt-5.1",
-    name: "GPT-5.1",
-    provider: "openai",
-    model: "gpt-5.1",
-    description: "Advanced reasoning and robust performance",
-    available: true
-  },
-  // OpenAI o-series reasoning models
-  {
-    id: "o3",
-    name: "o3",
-    provider: "openai",
-    model: "o3",
-    description: "Advanced reasoning for complex problem-solving",
-    available: true
-  },
-  {
-    id: "o3-mini",
-    name: "o3 Mini",
-    provider: "openai",
-    model: "o3-mini",
-    description: "Cost-effective reasoning with faster response times",
-    available: true
-  },
-  {
-    id: "o4-mini",
-    name: "o4 Mini",
-    provider: "openai",
-    model: "o4-mini",
-    description: "Fast, efficient reasoning model succeeding o3",
-    available: true
-  },
-  {
-    id: "o1",
-    name: "o1",
-    provider: "openai",
-    model: "o1",
-    description: "Premium reasoning for research, coding, math and science",
-    available: true
-  },
-  // OpenAI GPT-4 series
-  {
-    id: "gpt-4.1",
-    name: "GPT-4.1",
-    provider: "openai",
-    model: "gpt-4.1",
-    description: "Strong instruction-following with 1M context window",
-    available: true
-  },
-  {
-    id: "gpt-4.1-mini",
-    name: "GPT-4.1 Mini",
-    provider: "openai",
-    model: "gpt-4.1-mini",
-    description: "Faster, smaller version balancing performance and efficiency",
-    available: true
-  },
-  {
-    id: "gpt-4.1-nano",
-    name: "GPT-4.1 Nano",
-    provider: "openai",
-    model: "gpt-4.1-nano",
-    description: "Most cost-efficient for lighter tasks",
-    available: true
-  },
-  {
-    id: "gpt-4o",
-    name: "GPT-4o",
-    provider: "openai",
-    model: "gpt-4o",
-    description: "Versatile model for text generation and comprehension",
-    available: true
-  },
-  {
-    id: "gpt-4o-mini",
-    name: "GPT-4o Mini",
-    provider: "openai",
-    model: "gpt-4o-mini",
-    description: "Cost-efficient variant with faster response times",
-    available: true
-  },
-  // Google Gemini models
-  {
-    id: "gemini-3-pro-preview",
-    name: "Gemini 3 Pro Preview",
-    provider: "google",
-    model: "gemini-3-pro-preview",
-    description: "State-of-the-art reasoning and multimodal understanding",
-    available: true
-  },
-  {
-    id: "gemini-3-flash-preview",
-    name: "Gemini 3 Flash Preview",
-    provider: "google",
-    model: "gemini-3-flash-preview",
-    description: "Fast frontier-class model with low latency and cost",
-    available: true
-  },
-  {
-    id: "gemini-2.5-pro",
-    name: "Gemini 2.5 Pro",
-    provider: "google",
-    model: "gemini-2.5-pro",
-    description: "High-capability model for complex reasoning and coding",
-    available: true
-  },
-  {
-    id: "gemini-2.5-flash",
-    name: "Gemini 2.5 Flash",
-    provider: "google",
-    model: "gemini-2.5-flash",
-    description: "Lightning-fast with balance of intelligence and latency",
-    available: true
-  },
-  {
-    id: "gemini-2.5-flash-lite",
-    name: "Gemini 2.5 Flash Lite",
-    provider: "google",
-    model: "gemini-2.5-flash-lite",
-    description: "Fast, low-cost, high-performance model",
-    available: true
-  }
-]
-
 export function registerModelHandlers(ipcMain: IpcMain): void {
-  // List available models
+  // List user-configured models
   ipcMain.handle("models:list", async () => {
-    // Check which models have API keys configured
-    return AVAILABLE_MODELS.map((model) => ({
-      ...model,
-      available: hasApiKey(model.provider)
-    }))
+    const hasKey = hasApiKey()
+    const userModels = getUserModels()
+
+    return userModels.map(
+      (model): ModelConfig => ({
+        id: model.id,
+        name: model.name,
+        model: model.modelId,
+        description: model.description,
+        available: hasKey
+      })
+    )
   })
 
   // Get default model
   ipcMain.handle("models:getDefault", async () => {
-    return store.get("defaultModel", "claude-sonnet-4-5-20250929") as string
+    const userModels = getUserModels()
+    const defaultModel = userModels.find((m) => m.isDefault)
+    return defaultModel?.id || (store.get("defaultModel", null) as string | null)
   })
 
   // Set default model
   ipcMain.handle("models:setDefault", async (_event, modelId: string) => {
     store.set("defaultModel", modelId)
+    // Also update isDefault flag in user models
+    const models = getUserModels()
+    const updated = models.map((m) => ({ ...m, isDefault: m.id === modelId }))
+    setUserModels(updated)
   })
 
-  // Set API key for a provider (stored in ~/.openwork/.env)
-  ipcMain.handle("models:setApiKey", async (_event, { provider, apiKey }: SetApiKeyParams) => {
-    setApiKey(provider, apiKey)
+  // Set API key (simplified - single provider)
+  ipcMain.handle("models:setApiKey", async (_event, { apiKey }: SetApiKeyParams) => {
+    setApiKey(apiKey)
   })
 
-  // Get API key for a provider (from ~/.openwork/.env or process.env)
-  ipcMain.handle("models:getApiKey", async (_event, provider: string) => {
-    return getApiKey(provider) ?? null
+  // Get API key
+  ipcMain.handle("models:getApiKey", async () => {
+    return getApiKey() ?? null
   })
 
-  // Delete API key for a provider
-  ipcMain.handle("models:deleteApiKey", async (_event, provider: string) => {
-    deleteApiKey(provider)
+  // Delete API key
+  ipcMain.handle("models:deleteApiKey", async () => {
+    deleteApiKey()
   })
 
-  // List providers with their API key status
-  ipcMain.handle("models:listProviders", async () => {
-    return PROVIDERS.map((provider) => ({
-      ...provider,
-      hasApiKey: hasApiKey(provider.id)
-    }))
+  // Check if API key exists
+  ipcMain.handle("models:hasApiKey", async () => {
+    return hasApiKey()
+  })
+
+  // Get base URL
+  ipcMain.handle("models:getBaseUrl", async () => {
+    return getBaseUrl()
+  })
+
+  // Set base URL
+  ipcMain.handle("models:setBaseUrl", async (_event, url: string) => {
+    setBaseUrl(url)
+  })
+
+  // Add user model
+  ipcMain.handle("models:addModel", async (_event, model: UserModel) => {
+    addUserModel(model)
+  })
+
+  // Delete user model
+  ipcMain.handle("models:deleteModel", async (_event, modelId: string) => {
+    deleteUserModel(modelId)
+  })
+
+  // Get all user models
+  ipcMain.handle("models:getUserModels", async () => {
+    return getUserModels()
   })
 
   // Sync version info
@@ -271,7 +126,10 @@ export function registerModelHandlers(ipcMain: IpcMain): void {
   // Set workspace path for a thread (stores in thread metadata)
   ipcMain.handle(
     "workspace:set",
-    async (_event, { threadId, path: newPath }: WorkspaceSetParams) => {
+    async (
+      _event,
+      { threadId, path: newPath }: { threadId?: string; path: string | null }
+    ) => {
       if (!threadId) {
         // Fallback to global setting
         if (newPath) {
@@ -335,80 +193,83 @@ export function registerModelHandlers(ipcMain: IpcMain): void {
   })
 
   // Load files from disk into the workspace view
-  ipcMain.handle("workspace:loadFromDisk", async (_event, { threadId }: WorkspaceLoadParams) => {
-    const { getThread } = await import("../db")
+  ipcMain.handle(
+    "workspace:loadFromDisk",
+    async (_event, { threadId }: { threadId: string }) => {
+      const { getThread } = await import("../db")
 
-    // Get workspace path from thread metadata
-    const thread = getThread(threadId)
-    const metadata = thread?.metadata ? JSON.parse(thread.metadata) : {}
-    const workspacePath = metadata.workspacePath as string | null
+      // Get workspace path from thread metadata
+      const thread = getThread(threadId)
+      const metadata = thread?.metadata ? JSON.parse(thread.metadata) : {}
+      const workspacePath = metadata.workspacePath as string | null
 
-    if (!workspacePath) {
-      return { success: false, error: "No workspace folder linked", files: [] }
-    }
+      if (!workspacePath) {
+        return { success: false, error: "No workspace folder linked", files: [] }
+      }
 
-    try {
-      const files: Array<{
-        path: string
-        is_dir: boolean
-        size?: number
-        modified_at?: string
-      }> = []
+      try {
+        const files: Array<{
+          path: string
+          is_dir: boolean
+          size?: number
+          modified_at?: string
+        }> = []
 
-      // Recursively read directory
-      async function readDir(dirPath: string, relativePath: string = ""): Promise<void> {
-        const entries = await fs.readdir(dirPath, { withFileTypes: true })
+        // Recursively read directory
+        async function readDir(dirPath: string, relativePath: string = ""): Promise<void> {
+          const entries = await fs.readdir(dirPath, { withFileTypes: true })
 
-        for (const entry of entries) {
-          // Skip hidden files and common non-project files
-          if (entry.name.startsWith(".") || entry.name === "node_modules") {
-            continue
-          }
+          for (const entry of entries) {
+            // Skip hidden files and common non-project files
+            if (entry.name.startsWith(".") || entry.name === "node_modules") {
+              continue
+            }
 
-          const fullPath = path.join(dirPath, entry.name)
-          const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name
+            const fullPath = path.join(dirPath, entry.name)
+            const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name
 
-          if (entry.isDirectory()) {
-            files.push({
-              path: "/" + relPath,
-              is_dir: true
-            })
-            await readDir(fullPath, relPath)
-          } else {
-            const stat = await fs.stat(fullPath)
-            files.push({
-              path: "/" + relPath,
-              is_dir: false,
-              size: stat.size,
-              modified_at: stat.mtime.toISOString()
-            })
+            if (entry.isDirectory()) {
+              files.push({
+                path: "/" + relPath,
+                is_dir: true
+              })
+              await readDir(fullPath, relPath)
+            } else {
+              const stat = await fs.stat(fullPath)
+              files.push({
+                path: "/" + relPath,
+                is_dir: false,
+                size: stat.size,
+                modified_at: stat.mtime.toISOString()
+              })
+            }
           }
         }
-      }
 
-      await readDir(workspacePath)
+        await readDir(workspacePath)
 
-      // Start watching for file changes
-      startWatching(threadId, workspacePath)
+        // Start watching for file changes
+        startWatching(threadId, workspacePath)
 
-      return {
-        success: true,
-        files,
-        workspacePath
-      }
-    } catch (e) {
-      return {
-        success: false,
-        error: e instanceof Error ? e.message : "Unknown error",
-        files: []
+        return {
+          success: true,
+          files,
+          workspacePath
+        }
+      } catch (e) {
+        return {
+          success: false,
+          error: e instanceof Error ? e.message : "Unknown error",
+          files: []
+        }
       }
     }
-  })
+  )
 
   // Read a single file's contents from disk
   ipcMain.handle(
     "workspace:readFile",
-    async (_event, { threadId, filePath }: WorkspaceFileParams) => {
+    async (_event, { threadId, filePath }: { threadId: string; filePath: string }) => {
       const { getThread } = await import("../db")
 
       // Get workspace path from thread metadata
@@ -462,7 +323,7 @@ export function registerModelHandlers(ipcMain: IpcMain): void {
   // Read a binary file (images, PDFs, etc.) and return as base64
   ipcMain.handle(
     "workspace:readBinaryFile",
-    async (_event, { threadId, filePath }: WorkspaceFileParams) => {
+    async (_event, { threadId, filePath }: { threadId: string; filePath: string }) => {
       const { getThread } = await import("../db")
 
       // Get workspace path from thread metadata
@@ -516,8 +377,10 @@ export function registerModelHandlers(ipcMain: IpcMain): void {
 }
 
 // Re-export getApiKey from storage for use in agent runtime
-export { getApiKey } from "../storage"
+export { getApiKey, getBaseUrl, getUserModels } from "../storage"
 
-export function getDefaultModel(): string {
-  return store.get("defaultModel", "claude-sonnet-4-5-20250929") as string
+export function getDefaultModel(): string | null {
+  const userModels = getUserModels()
+  const defaultModel = userModels.find((m) => m.isDefault)
+  return defaultModel?.id || (store.get("defaultModel", null) as string | null)
 }

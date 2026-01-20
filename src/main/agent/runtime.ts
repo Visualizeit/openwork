@@ -1,10 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { createDeepAgent } from "deepagents"
-import { getDefaultModel } from "../ipc/models"
-import { getApiKey, getThreadCheckpointPath } from "../storage"
-import { ChatAnthropic } from "@langchain/anthropic"
+import { getDefaultModel, getApiKey, getBaseUrl, getUserModels } from "../ipc/models"
+import { getThreadCheckpointPath } from "../storage"
 import { ChatOpenAI } from "@langchain/openai"
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai"
 import { SqlJsSaver } from "../checkpointer/sqljs-saver"
 import { LocalSandbox } from "./local-sandbox"
 
@@ -58,53 +56,45 @@ export async function closeCheckpointer(threadId: string): Promise<void> {
   }
 }
 
-// Get the appropriate model instance based on configuration
-function getModelInstance(
-  modelId?: string
-): ChatAnthropic | ChatOpenAI | ChatGoogleGenerativeAI | string {
-  const model = modelId || getDefaultModel()
-  console.log("[Runtime] Using model:", model)
+// Get the model instance using OpenAI-compatible API
+function getModelInstance(modelId?: string): ChatOpenAI {
+  const apiKey = getApiKey()
+  const baseUrl = getBaseUrl()
 
-  // Determine provider from model ID
-  if (model.startsWith("claude")) {
-    const apiKey = getApiKey("anthropic")
-    console.log("[Runtime] Anthropic API key present:", !!apiKey)
-    if (!apiKey) {
-      throw new Error("Anthropic API key not configured")
-    }
-    return new ChatAnthropic({
-      model,
-      anthropicApiKey: apiKey
-    })
-  } else if (
-    model.startsWith("gpt") ||
-    model.startsWith("o1") ||
-    model.startsWith("o3") ||
-    model.startsWith("o4")
-  ) {
-    const apiKey = getApiKey("openai")
-    console.log("[Runtime] OpenAI API key present:", !!apiKey)
-    if (!apiKey) {
-      throw new Error("OpenAI API key not configured")
-    }
-    return new ChatOpenAI({
-      model,
-      openAIApiKey: apiKey
-    })
-  } else if (model.startsWith("gemini")) {
-    const apiKey = getApiKey("google")
-    console.log("[Runtime] Google API key present:", !!apiKey)
-    if (!apiKey) {
-      throw new Error("Google API key not configured")
-    }
-    return new ChatGoogleGenerativeAI({
-      model,
-      apiKey: apiKey
-    })
+  if (!apiKey) {
+    throw new Error("API key not configured. Please add your API key in settings.")
   }
 
-  // Default to model string (let deepagents handle it)
-  return model
+  // Determine actual model ID
+  let actualModelId: string
+
+  if (modelId) {
+    // Look up user model configuration
+    const userModels = getUserModels()
+    const userModel = userModels.find((m) => m.id === modelId)
+    actualModelId = userModel?.modelId || modelId
+  } else {
+    // Use default model
+    const defaultId = getDefaultModel()
+    if (!defaultId) {
+      throw new Error("No default model configured. Please add a model in settings.")
+    }
+    const userModels = getUserModels()
+    const defaultModel = userModels.find((m) => m.id === defaultId)
+    actualModelId = defaultModel?.modelId || defaultId
+  }
+
+  console.log("[Runtime] Using model:", actualModelId)
+  console.log("[Runtime] Base URL:", baseUrl)
+  console.log("[Runtime] API key present:", !!apiKey)
+
+  return new ChatOpenAI({
+    model: actualModelId,
+    openAIApiKey: apiKey,
+    configuration: {
+      baseURL: baseUrl
+    }
+  })
 }
 
 export interface CreateAgentRuntimeOptions {
