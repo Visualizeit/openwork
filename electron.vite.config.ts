@@ -1,16 +1,34 @@
 import { resolve } from "path"
-import { readFileSync, copyFileSync, existsSync, mkdirSync } from "fs"
+import { readFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs"
 import { defineConfig } from "electron-vite"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 
 const pkg = JSON.parse(readFileSync("./package.json", "utf-8"))
 
+// Helper to copy directory recursively
+function copyDirRecursive(src: string, dest: string): void {
+  if (!existsSync(src)) return
+  if (!existsSync(dest)) {
+    mkdirSync(dest, { recursive: true })
+  }
+  for (const entry of readdirSync(src)) {
+    const srcPath = resolve(src, entry)
+    const destPath = resolve(dest, entry)
+    if (statSync(srcPath).isDirectory()) {
+      copyDirRecursive(srcPath, destPath)
+    } else {
+      copyFileSync(srcPath, destPath)
+    }
+  }
+}
+
 // Plugin to copy resources to output
 function copyResources(): { name: string; closeBundle: () => void } {
   return {
     name: "copy-resources",
     closeBundle(): void {
+      // Copy icon
       const srcIcon = resolve("resources/icon.png")
       const destDir = resolve("out/resources")
       const destIcon = resolve("out/resources/icon.png")
@@ -21,6 +39,9 @@ function copyResources(): { name: string; closeBundle: () => void } {
         }
         copyFileSync(srcIcon, destIcon)
       }
+
+      // Copy skills directory
+      copyDirRecursive(resolve("src/main/agent/skills"), resolve("out/main/skills"))
     }
   }
 }

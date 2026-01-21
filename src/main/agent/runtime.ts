@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { createDeepAgent } from "deepagents"
+import { createDeepAgent, createSkillsMiddleware, listSkills } from "deepagents"
 import { getDefaultModel, getApiKey, getBaseUrl, getUserModels } from "../ipc/models"
 import { getThreadCheckpointPath } from "../storage"
+import { join } from "path"
 import { ChatOpenAI } from "@langchain/openai"
 import { SqlJsSaver } from "../checkpointer/sqljs-saver"
 import { LocalSandbox } from "./local-sandbox"
@@ -194,6 +195,17 @@ export async function createAgentRuntime(options: CreateAgentRuntimeOptions) {
 
 The workspace root is: ${workspacePath}`
 
+  // Skills configuration (built-in only)
+  const skillsDir = join(__dirname, "skills")
+  const skills = listSkills({ userSkillsDir: skillsDir })
+  consola.info("[Runtime] Skills dir:", skillsDir)
+  consola.info("[Runtime] Available skills:", skills.map((s) => s.name))
+
+  const skillsMiddleware = createSkillsMiddleware({
+    backend: backend,
+    sources: [skillsDir]
+  })
+
   const agent = createDeepAgent({
     model,
     checkpointer,
@@ -204,7 +216,9 @@ The workspace root is: ${workspacePath}`
     // Require human approval for all shell commands
     interruptOn: { execute: true },
     // MCP tools (auto-execute, no HITL required)
-    tools: mcpTools.length > 0 ? mcpTools : undefined
+    tools: mcpTools.length > 0 ? mcpTools : undefined,
+    // Skills middleware
+    middleware: [skillsMiddleware]
   } as Parameters<typeof createDeepAgent>[0])
 
   consola.success("[Runtime] Deep agent created with LocalSandbox at:", workspacePath)
