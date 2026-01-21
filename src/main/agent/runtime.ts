@@ -17,8 +17,24 @@ import type * as _lcZodTypes from "@langchain/core/utils/types"
 
 import { BASE_SYSTEM_PROMPT } from "./system-prompt"
 
-// Exa MCP server URL (hardcoded)
-const MCP_SERVER_URL = "https://mcp.exa.ai/mcp"
+// MCP server configurations (hardcoded)
+const MCP_SERVERS = {
+  exa: {
+    url: "https://mcp.exa.ai/mcp",
+    transport: "http" as const
+  },
+  // "sinafinance-http": {
+  //   url: "http://mcp.finance.sina.com.cn/mcp-http",
+  //   transport: "http" as const,
+  //   headers: {
+  //     "X-Auth-Token": "71ce037c7ce173113e6051cda79d68f1"
+  //   }
+  // },
+  "stargate-yingmi": {
+    url: "https://stargate.yingmi.com/mcp/sse?apiKey=lpu8Kv0OuZR2L9AHt0EOWg",
+    transport: "sse" as const
+  }
+}
 
 // Global MCP client instance
 let mcpClient: MultiServerMCPClient | null = null
@@ -27,16 +43,14 @@ let mcpTools: DynamicStructuredTool[] = []
 // Initialize MCP connection (called on app startup)
 export async function initMCP(): Promise<void> {
   try {
-    mcpClient = new MultiServerMCPClient({
-      exa: {
-        url: MCP_SERVER_URL,
-        transport: "http"
-      }
-    })
+    mcpClient = new MultiServerMCPClient(MCP_SERVERS)
 
     mcpTools = await mcpClient.getTools()
-    consola.success("[MCP] Connected to:", MCP_SERVER_URL)
-    consola.info("[MCP] Available tools:", mcpTools.map((t) => t.name))
+    consola.success("[MCP] Connected to multiple servers:", Object.keys(MCP_SERVERS))
+    consola.info(
+      "[MCP] Available tools:",
+      mcpTools.map((t) => t.name)
+    )
   } catch (error) {
     consola.error("[MCP] Failed to connect:", error)
     mcpClient = null
@@ -199,7 +213,10 @@ The workspace root is: ${workspacePath}`
   const skillsDir = join(__dirname, "skills")
   const skills = listSkills({ userSkillsDir: skillsDir })
   consola.info("[Runtime] Skills dir:", skillsDir)
-  consola.info("[Runtime] Available skills:", skills.map((s) => s.name))
+  consola.info(
+    "[Runtime] Available skills:",
+    skills.map((s) => s.name)
+  )
 
   const skillsMiddleware = createSkillsMiddleware({
     backend: backend,
