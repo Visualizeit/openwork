@@ -46,11 +46,11 @@
     "build": "npm run typecheck && electron-vite build"
   },
   "dependencies": {
-    "electron": "^39.2.6",
     "@langchain/core": "1.1.15",
     "@langchain/langgraph": "^1.0.15",
     "@langchain/langgraph-checkpoint": "^1.0.0",
     "@langchain/langgraph-sdk": "^1.5.3",
+    "@langchain/mcp-adapters": "^1.1.1",
     "@langchain/openai": "^1.2.2",
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -67,7 +67,9 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "consola": "^3.4.2",
     "deepagents": "^1.5.0",
+    "electron": "^39.2.6",
     "electron-store": "^8.2.0",
     "lucide-react": "^0.469.0",
     "react-markdown": "^10.1.0",
@@ -77,6 +79,7 @@
     "sql.js": "^1.12.0",
     "tailwind-merge": "^2.6.0",
     "uuid": "^11.0.5",
+    "zod": "^4.3.5",
     "zustand": "^5.0.3"
   },
   "devDependencies": {

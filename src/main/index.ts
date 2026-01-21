@@ -4,6 +4,7 @@ import { registerAgentHandlers } from "./ipc/agent"
 import { registerThreadHandlers } from "./ipc/threads"
 import { registerModelHandlers } from "./ipc/models"
 import { initializeDatabase } from "./db"
+import { initMCP, closeMCP } from "./agent/runtime"
 
 let mainWindow: BrowserWindow | null = null
 
@@ -81,6 +82,9 @@ app.whenReady().then(async () => {
   // Initialize database
   await initializeDatabase()
 
+  // Initialize MCP connection
+  await initMCP()
+
   // Register IPC handlers
   registerAgentHandlers(ipcMain)
   registerThreadHandlers(ipcMain)
@@ -99,4 +103,9 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit()
   }
+})
+
+// Clean up MCP connection before quit
+app.on("before-quit", async () => {
+  await closeMCP()
 })

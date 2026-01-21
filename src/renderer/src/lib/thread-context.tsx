@@ -88,7 +88,7 @@ interface ThreadContextValue {
 }
 
 // Default thread state
-const createDefaultThreadState = (): ThreadState => ({
+const createDefaultThreadState = (defaultModel?: string): ThreadState => ({
   messages: [],
   todos: [],
   workspaceFiles: [],
@@ -96,7 +96,7 @@ const createDefaultThreadState = (): ThreadState => ({
   subagents: [],
   pendingApproval: null,
   error: null,
-  currentModel: "claude-sonnet-4-5-20250929",
+  currentModel: defaultModel || "",
   openFiles: [],
   activeTab: "agent",
   fileContents: {},
@@ -216,6 +216,16 @@ export function ThreadProvider({ children }: { children: ReactNode }) {
   const [activeThreadIds, setActiveThreadIds] = useState<Set<string>>(new Set())
   const initializedThreadsRef = useRef<Set<string>>(new Set())
   const actionsCache = useRef<Record<string, ThreadActions>>({})
+  const defaultModelRef = useRef<string>("")
+
+  // Load default model on mount (first model in user's list)
+  useEffect(() => {
+    window.api.models.getUserModels().then((models) => {
+      if (models && models.length > 0) {
+        defaultModelRef.current = models[0].id
+      }
+    })
+  }, [])
 
   // Stream data store (not React state - we use subscriptions)
   const streamDataRef = useRef<Record<string, StreamData>>({})
@@ -257,7 +267,7 @@ export function ThreadProvider({ children }: { children: ReactNode }) {
 
   const getThreadState = useCallback(
     (threadId: string): ThreadState => {
-      const state = threadStates[threadId] || createDefaultThreadState()
+      const state = threadStates[threadId] || createDefaultThreadState(defaultModelRef.current)
       if (state.pendingApproval) {
         console.log(
           "[ThreadContext] getThreadState returning pendingApproval for:",
@@ -273,7 +283,7 @@ export function ThreadProvider({ children }: { children: ReactNode }) {
   const updateThreadState = useCallback(
     (threadId: string, updater: (prev: ThreadState) => Partial<ThreadState>) => {
       setThreadStates((prev) => {
-        const currentState = prev[threadId] || createDefaultThreadState()
+        const currentState = prev[threadId] || createDefaultThreadState(defaultModelRef.current)
         const updates = updater(currentState)
         return {
           ...prev,
@@ -662,7 +672,7 @@ export function ThreadProvider({ children }: { children: ReactNode }) {
 
       setThreadStates((prev) => {
         if (prev[threadId]) return prev
-        return { ...prev, [threadId]: createDefaultThreadState() }
+        return { ...prev, [threadId]: createDefaultThreadState(defaultModelRef.current) }
       })
 
       loadThreadHistory(threadId)

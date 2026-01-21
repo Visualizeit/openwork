@@ -5,6 +5,9 @@ import { getThreadCheckpointPath } from "../storage"
 import { ChatOpenAI } from "@langchain/openai"
 import { SqlJsSaver } from "../checkpointer/sqljs-saver"
 import { LocalSandbox } from "./local-sandbox"
+import { MultiServerMCPClient } from "@langchain/mcp-adapters"
+import type { DynamicStructuredTool } from "@langchain/core/tools"
+import { consola } from "consola"
 
 import type * as _lcTypes from "langchain"
 import type * as _lcMessages from "@langchain/core/messages"
@@ -12,6 +15,43 @@ import type * as _lcLanggraph from "@langchain/langgraph"
 import type * as _lcZodTypes from "@langchain/core/utils/types"
 
 import { BASE_SYSTEM_PROMPT } from "./system-prompt"
+
+// Exa MCP server URL (hardcoded)
+const MCP_SERVER_URL = "https://mcp.exa.ai/mcp"
+
+// Global MCP client instance
+let mcpClient: MultiServerMCPClient | null = null
+let mcpTools: DynamicStructuredTool[] = []
+
+// Initialize MCP connection (called on app startup)
+export async function initMCP(): Promise<void> {
+  try {
+    mcpClient = new MultiServerMCPClient({
+      exa: {
+        url: MCP_SERVER_URL,
+        transport: "http"
+      }
+    })
+
+    mcpTools = await mcpClient.getTools()
+    consola.success("[MCP] Connected to:", MCP_SERVER_URL)
+    consola.info("[MCP] Available tools:", mcpTools.map((t) => t.name))
+  } catch (error) {
+    consola.error("[MCP] Failed to connect:", error)
+    mcpClient = null
+    mcpTools = []
+  }
+}
+
+// Close MCP connection
+export async function closeMCP(): Promise<void> {
+  if (mcpClient) {
+    await mcpClient.close()
+    mcpClient = null
+    mcpTools = []
+    consola.info("[MCP] Disconnected")
+  }
+}
 
 /**
  * Generate the full system prompt for the agent.
@@ -84,15 +124,16 @@ function getModelInstance(modelId?: string): ChatOpenAI {
     actualModelId = defaultModel?.modelId || defaultId
   }
 
-  console.log("[Runtime] Using model:", actualModelId)
-  console.log("[Runtime] Base URL:", baseUrl)
-  console.log("[Runtime] API key present:", !!apiKey)
+  consola.info("[Runtime] Using model:", actualModelId)
+  consola.info("[Runtime] Base URL:", baseUrl)
+  consola.info("[Runtime] API key present:", !!apiKey)
 
   return new ChatOpenAI({
     model: actualModelId,
     openAIApiKey: apiKey,
     configuration: {
-      baseURL: baseUrl
+      baseURL: baseUrl,
+      apiKey: apiKey
     }
   })
 }
@@ -122,15 +163,15 @@ export async function createAgentRuntime(options: CreateAgentRuntimeOptions) {
     )
   }
 
-  console.log("[Runtime] Creating agent runtime...")
-  console.log("[Runtime] Thread ID:", threadId)
-  console.log("[Runtime] Workspace path:", workspacePath)
+  consola.info("[Runtime] Creating agent runtime...")
+  consola.info("[Runtime] Thread ID:", threadId)
+  consola.info("[Runtime] Workspace path:", workspacePath)
 
   const model = getModelInstance(modelId)
-  console.log("[Runtime] Model instance created:", typeof model)
+  consola.info("[Runtime] Model instance created:", typeof model)
 
   const checkpointer = await getCheckpointer(threadId)
-  console.log("[Runtime] Checkpointer ready for thread:", threadId)
+  consola.info("[Runtime] Checkpointer ready for thread:", threadId)
 
   const backend = new LocalSandbox({
     rootDir: workspacePath,
@@ -161,10 +202,12 @@ The workspace root is: ${workspacePath}`
     // Custom filesystem prompt for absolute paths (requires deepagents update)
     filesystemSystemPrompt,
     // Require human approval for all shell commands
-    interruptOn: { execute: true }
+    interruptOn: { execute: true },
+    // MCP tools (auto-execute, no HITL required)
+    tools: mcpTools.length > 0 ? mcpTools : undefined
   } as Parameters<typeof createDeepAgent>[0])
 
-  console.log("[Runtime] Deep agent created with LocalSandbox at:", workspacePath)
+  consola.success("[Runtime] Deep agent created with LocalSandbox at:", workspacePath)
   return agent
 }
 

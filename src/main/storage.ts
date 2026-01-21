@@ -1,16 +1,33 @@
 import { homedir } from "os"
 import { join } from "path"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs"
+import { consola } from "consola"
+import { z } from "zod"
 import type { UserModel } from "./types"
 
 const OPENWORK_DIR = join(homedir(), ".openwork")
-const ENV_FILE = join(OPENWORK_DIR, ".env")
-const USER_MODELS_FILE = join(OPENWORK_DIR, "user-models.json")
-
-// Environment variable names
-const OPENAI_API_KEY = "OPENAI_API_KEY"
-const OPENAI_BASE_URL = "OPENAI_BASE_URL"
+const CONFIG_FILE = join(OPENWORK_DIR, "config.json")
 const DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
+// Zod schema for UserModel
+const UserModelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  modelId: z.string(),
+  description: z.string().optional(),
+  isDefault: z.boolean().optional()
+})
+
+// Zod schema for config file with catch defaults
+const OpenworkConfigSchema = z
+  .object({
+    apiKey: z.string().optional(),
+    baseUrl: z.string().optional(),
+    models: z.array(UserModelSchema).catch([])
+  })
+  .catch({ models: [] })
+
+type OpenworkConfig = z.infer<typeof OpenworkConfigSchema>
 
 export function getOpenworkDir(): string {
   if (!existsSync(OPENWORK_DIR)) {
@@ -46,69 +63,53 @@ export function deleteThreadCheckpoint(threadId: string): void {
   }
 }
 
-export function getEnvFilePath(): string {
-  return ENV_FILE
-}
-
-// Read .env file and parse into object
-function parseEnvFile(): Record<string, string> {
-  const envPath = getEnvFilePath()
-  if (!existsSync(envPath)) return {}
-
-  const content = readFileSync(envPath, "utf-8")
-  const result: Record<string, string> = {}
-
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith("#")) continue
-    const eqIndex = trimmed.indexOf("=")
-    if (eqIndex > 0) {
-      const key = trimmed.slice(0, eqIndex).trim()
-      const value = trimmed.slice(eqIndex + 1).trim()
-      result[key] = value
-    }
+// Read config from JSON file with zod validation
+function readConfig(): OpenworkConfig {
+  if (!existsSync(CONFIG_FILE)) {
+    return { models: [] }
   }
-  return result
+  try {
+    const content = readFileSync(CONFIG_FILE, "utf-8")
+    const json = JSON.parse(content)
+    const config = OpenworkConfigSchema.parse(json)
+    consola.debug("[Storage] Read config:", {
+      hasApiKey: !!config.apiKey,
+      baseUrl: config.baseUrl,
+      modelCount: config.models.length
+    })
+    return config
+  } catch (error) {
+    consola.error("[Storage] Failed to read config:", error)
+    return { models: [] }
+  }
 }
 
-// Write object back to .env file
-function writeEnvFile(env: Record<string, string>): void {
+// Write config to JSON file
+function writeConfig(config: OpenworkConfig): void {
   getOpenworkDir() // ensure dir exists
-  const lines = Object.entries(env)
-    .filter((entry) => entry[1])
-    .map(([k, v]) => `${k}=${v}`)
-  writeFileSync(getEnvFilePath(), lines.join("\n") + "\n")
+  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2))
+  consola.debug("[Storage] Wrote config:", { hasApiKey: !!config.apiKey, baseUrl: config.baseUrl, modelCount: config.models?.length ?? 0 })
 }
 
 // =============================================================================
-// API Key Management (simplified - single OpenAI-compatible endpoint)
+// API Key Management
 // =============================================================================
 
 export function getApiKey(): string | undefined {
-  // Check .env file first
-  const env = parseEnvFile()
-  if (env[OPENAI_API_KEY]) return env[OPENAI_API_KEY]
-
-  // Fall back to process environment
-  return process.env[OPENAI_API_KEY]
+  const config = readConfig()
+  return config.apiKey
 }
 
 export function setApiKey(apiKey: string): void {
-  const env = parseEnvFile()
-  env[OPENAI_API_KEY] = apiKey
-  writeEnvFile(env)
-
-  // Also set in process.env for current session
-  process.env[OPENAI_API_KEY] = apiKey
+  const config = readConfig()
+  config.apiKey = apiKey
+  writeConfig(config)
 }
 
 export function deleteApiKey(): void {
-  const env = parseEnvFile()
-  delete env[OPENAI_API_KEY]
-  writeEnvFile(env)
-
-  // Also clear from process.env
-  delete process.env[OPENAI_API_KEY]
+  const config = readConfig()
+  delete config.apiKey
+  writeConfig(config)
 }
 
 export function hasApiKey(): boolean {
@@ -120,21 +121,14 @@ export function hasApiKey(): boolean {
 // =============================================================================
 
 export function getBaseUrl(): string {
-  // Check .env file first
-  const env = parseEnvFile()
-  if (env[OPENAI_BASE_URL]) return env[OPENAI_BASE_URL]
-
-  // Fall back to process environment, then default
-  return process.env[OPENAI_BASE_URL] || DEFAULT_BASE_URL
+  const config = readConfig()
+  return config.baseUrl || DEFAULT_BASE_URL
 }
 
 export function setBaseUrl(url: string): void {
-  const env = parseEnvFile()
-  env[OPENAI_BASE_URL] = url
-  writeEnvFile(env)
-
-  // Also set in process.env for current session
-  process.env[OPENAI_BASE_URL] = url
+  const config = readConfig()
+  config.baseUrl = url
+  writeConfig(config)
 }
 
 // =============================================================================
@@ -142,32 +136,31 @@ export function setBaseUrl(url: string): void {
 // =============================================================================
 
 export function getUserModels(): UserModel[] {
-  if (!existsSync(USER_MODELS_FILE)) return []
-  try {
-    const content = readFileSync(USER_MODELS_FILE, "utf-8")
-    return JSON.parse(content) as UserModel[]
-  } catch {
-    return []
-  }
+  const config = readConfig()
+  return config.models || []
 }
 
 export function setUserModels(models: UserModel[]): void {
-  getOpenworkDir() // ensure dir exists
-  writeFileSync(USER_MODELS_FILE, JSON.stringify(models, null, 2))
+  const config = readConfig()
+  config.models = models
+  writeConfig(config)
 }
 
 export function addUserModel(model: UserModel): void {
-  const models = getUserModels()
+  const config = readConfig()
+  const models = config.models || []
   const existingIndex = models.findIndex((m) => m.id === model.id)
   if (existingIndex >= 0) {
     models[existingIndex] = model
   } else {
     models.push(model)
   }
-  setUserModels(models)
+  config.models = models
+  writeConfig(config)
 }
 
 export function deleteUserModel(modelId: string): void {
-  const models = getUserModels().filter((m) => m.id !== modelId)
-  setUserModels(models)
+  const config = readConfig()
+  config.models = (config.models || []).filter((m) => m.id !== modelId)
+  writeConfig(config)
 }

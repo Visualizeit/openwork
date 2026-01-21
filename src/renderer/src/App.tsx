@@ -16,7 +16,7 @@ const RIGHT_MAX = 450
 const RIGHT_DEFAULT = 320
 
 function App(): React.JSX.Element {
-  const { currentThreadId, loadThreads, createThread } = useAppStore()
+  const { currentThreadId, loadThreads, createThread, loadModels } = useAppStore()
   const [isLoading, setIsLoading] = useState(true)
   const [leftWidth, setLeftWidth] = useState(LEFT_DEFAULT)
   const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT)
@@ -95,6 +95,8 @@ function App(): React.JSX.Element {
   useEffect(() => {
     async function init(): Promise<void> {
       try {
+        // Load model configuration (API key, base URL) from persistence
+        await loadModels()
         await loadThreads()
         // Create a default thread if none exist
         const threads = useAppStore.getState().threads
@@ -108,7 +110,7 @@ function App(): React.JSX.Element {
       }
     }
     init()
-  }, [loadThreads, createThread])
+  }, [loadThreads, createThread, loadModels])
 
   if (isLoading) {
     return (
